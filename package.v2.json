@@ -1,0 +1,14 @@
+{
+  "PlayletLottery": {
+    "name": "PlayLet自动抽奖助手",
+    "description": "按每日目标次数自动拆解并执行 PlayLet 抽奖。",
+    "labels": "站点,自动化",
+    "version": "1.0.0",
+    "icon": "Moviepilot_A.png",
+    "author": "jiangbkvir,bfjy",
+    "level": 1,
+    "history": {
+      "v1.0.0": "新增 PlayLet 智能拆解自动抽奖、收益统计和奖品名称汇总。"
+    }
+  }
+}
