@@ -26,7 +26,7 @@ class PlayletLottery(_PluginBase):
     plugin_icon = "Moviepilot_A.png"
     plugin_version = "1.0.0"
     plugin_author = "jiangbkvir,bfjy"
-    author_url = ""
+    author_url = "https://github.com/jiangbkvir/MoviePilot-Plugins"
     plugin_config_prefix = "playletlottery_"
     plugin_order = 30
     auth_level = 1
