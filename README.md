@@ -6,6 +6,7 @@
 
 | 插件 ID | 名称 | 版本 | 说明 |
 | --- | --- | --- | --- |
+| `TangLottery` | 不可躺自动抽奖助手 | `1.0.0` | 按每日目标次数自动拆解并执行不可躺抽奖，记录历史、奖品汇总和任务通知。 |
 | `PlayletLottery` | PlayLet自动抽奖助手 | `1.0.1` | 按每日目标次数自动拆解并执行 PlayLet 抽奖，记录历史、奖品汇总和任务通知。 |
 
 ## 仓库结构
@@ -16,12 +17,14 @@ MoviePilot-Plugins/
 ├── package.json                   # 默认插件索引
 ├── package.v2.json                # V2 插件索引
 ├── plugins/                       # 默认插件目录
-│   └── playletlottery/
+│   ├── playletlottery/
+│   └── tanglottery/
 └── plugins.v2/                    # V2 插件目录
-    └── playletlottery/
+    ├── playletlottery/
+    └── tanglottery/
 ```
 
-当前 `plugins/playletlottery` 与 `plugins.v2/playletlottery` 保持同功能实现。后续新增插件时，也按同样方式补齐索引、目录和插件 README。
+当前 `plugins/` 与 `plugins.v2/` 下同名插件保持同功能实现。后续新增插件时，也按同样方式补齐索引、目录和插件 README。
 
 ## 安装使用
 
@@ -44,6 +47,7 @@ MoviePilot-Plugins/
 volumes:
   - ./MoviePilot-Plugins:/local-plugins
   - ./MoviePilot-Plugins/plugins.v2/playletlottery:/app/app/plugins/playletlottery
+  - ./MoviePilot-Plugins/plugins.v2/tanglottery:/app/app/plugins/tanglottery
 environment:
   - PLUGIN_LOCAL_REPO_PATHS=/local-plugins
   - PLUGIN_AUTO_RELOAD=true
@@ -59,6 +63,24 @@ environment:
 - 本地测试优先使用 `python3 -m py_compile` 做语法检查，再在 MoviePilot 中热重载验证。
 
 ## 当前插件
+
+### 不可躺自动抽奖助手
+
+MoviePilot 插件，用于按每日目标次数自动拆解并执行不可躺抽奖。
+
+主要能力：
+
+- 定时执行不可躺抽奖任务
+- 单次接口最多 `count=100`，目标次数大于 100 时自动拆分
+- 记录魔力值、折算魔力、上传量、其他奖励和奖品名称汇总
+- 详情页展示不可躺抽奖页面最新信息
+- 任务完成后按配置发送通知
+- 对次数不足、Cookie 失效和连续请求异常进行处理
+
+详细说明见插件目录：
+
+- `plugins/tanglottery/README.md`
+- `plugins.v2/tanglottery/README.md`
 
 ### PlayLet自动抽奖助手
 
