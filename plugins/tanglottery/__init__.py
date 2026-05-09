@@ -13,10 +13,12 @@ import urllib3
 from apscheduler.triggers.cron import CronTrigger
 from urllib3.exceptions import InsecureRequestWarning
 
+from app.core.event import Event, eventmanager
 from app.db.site_oper import SiteOper
 from app.log import logger
 from app.plugins import _PluginBase
 from app.schemas import NotificationType
+from app.schemas.types import EventType
 
 urllib3.disable_warnings(InsecureRequestWarning)
 
@@ -25,7 +27,7 @@ class TangLottery(_PluginBase):
     plugin_name = "不可躺自动抽奖助手"
     plugin_desc = "按每日目标次数自动拆解并执行不可躺抽奖。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.0.0"
+    plugin_version = "1.0.1"
     plugin_author = "jiangbkvir,bfjy"
     author_url = "https://github.com/jiangbkvir/MoviePilot-Plugins"
     plugin_config_prefix = "tanglottery_"
@@ -79,7 +81,17 @@ class TangLottery(_PluginBase):
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
-        return []
+        return [
+            {
+                "cmd": "/tang_lottery_run",
+                "event": EventType.PluginAction,
+                "desc": "立即执行不可躺抽奖",
+                "category": "站点",
+                "data": {
+                    "action": "tang_lottery_run"
+                }
+            }
+        ]
 
     def get_api(self) -> List[Dict[str, Any]]:
         return [
@@ -366,6 +378,33 @@ class TangLottery(_PluginBase):
         threading.Thread(target=self.run_lottery_task, daemon=True).start()
         return {"success": True, "message": "任务已开始，完成后会写入历史记录并按配置发送通知"}
 
+    @eventmanager.register(EventType.PluginAction)
+    def run_once_command(self, event: Event = None):
+        event_data = event.event_data if event else {}
+        if not event_data or event_data.get("action") != "tang_lottery_run":
+            return
+        channel = event_data.get("channel")
+        userid = event_data.get("user")
+        if self._lock.locked():
+            logger.warn("TG 命令立即执行请求被忽略：已有抽奖任务正在执行")
+            self.post_message(
+                channel=channel,
+                userid=userid,
+                mtype=NotificationType.Plugin,
+                title="【不可躺自动抽奖助手】",
+                text="已有抽奖任务正在执行，请等待当前任务结束。"
+            )
+            return
+        logger.info("收到 TG 命令立即执行请求，后台启动抽奖任务")
+        threading.Thread(target=self.run_lottery_task, daemon=True).start()
+        self.post_message(
+            channel=channel,
+            userid=userid,
+            mtype=NotificationType.Plugin,
+            title="【不可躺自动抽奖助手】",
+            text="任务已开始，完成后会写入历史记录并按配置发送通知。"
+        )
+
     @staticmethod
     def __info_col(label: str, value: Any) -> Dict[str, Any]:
         return {
@@ -459,6 +498,8 @@ class TangLottery(_PluginBase):
                 consecutive_request_errors = 0
                 self.__merge_response(result, response_data, count)
                 plan_index += 1
+                result["message"] = f"抽奖进行中：已完成 {result.get('completed_count')} / {result.get('target_count')} 次"
+                self.__save_progress(result)
                 self.__sleep_between_requests()
 
             if result["status"] == "running":
@@ -721,6 +762,20 @@ class TangLottery(_PluginBase):
                 logger.info(f"累计其他奖励：{display_name}，累计次数={task['other_rewards'][display_name]}")
 
     def __finish_task(self, result: Dict[str, Any]):
+        self.__prepare_record(result)
+        logger.info(f"抽奖任务最终结果：{self.__to_log_text(result)}")
+        self.__save_record(result)
+        if self._notify:
+            self.__send_notification(result)
+        else:
+            logger.info("抽奖任务通知未发送：发送通知开关未开启")
+
+    def __save_progress(self, result: Dict[str, Any]):
+        self.__prepare_record(result)
+        logger.info(f"抽奖任务进度保存：{self.__to_log_text(result)}")
+        self.__save_record(result)
+
+    def __prepare_record(self, result: Dict[str, Any]):
         result["date"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         result["status_text"] = self.__status_text(result.get("status"))
         result["bonus"] = self.__normalize_number(result.get("bonus", 0))
@@ -732,12 +787,6 @@ class TangLottery(_PluginBase):
         result["prize_text"] = self.__counter_to_text(result.get("prize_summary") or {})
         result["summary_text"] = "\n".join([text for text in result.get("summary_texts") or [] if text])
         result["detail_text"] = "\n\n".join([text for text in result.get("detail_texts") or [] if text])
-        logger.info(f"抽奖任务最终结果：{self.__to_log_text(result)}")
-        self.__save_record(result)
-        if self._notify:
-            self.__send_notification(result)
-        else:
-            logger.info("抽奖任务通知未发送：发送通知开关未开启")
 
     def __send_notification(self, result: Dict[str, Any]):
         title = "【不可躺自动抽奖助手】"
@@ -759,7 +808,16 @@ class TangLottery(_PluginBase):
         serializable["prize_summary"] = dict(serializable.get("prize_summary") or {})
         serializable["winning_summary"] = dict(serializable.get("winning_summary") or {})
         serializable["other_rewards"] = dict(serializable.get("other_rewards") or {})
-        stored.insert(0, serializable)
+        task_id = serializable.get("task_id")
+        replaced = False
+        if task_id:
+            for index, item in enumerate(stored):
+                if item.get("task_id") == task_id:
+                    stored[index] = serializable
+                    replaced = True
+                    break
+        if not replaced:
+            stored.insert(0, serializable)
         self.save_data("records", stored[:self.MAX_HISTORY])
         logger.info(f"抽奖历史记录已保存：当前保存条数={min(len(stored), self.MAX_HISTORY)}")
 
@@ -930,6 +988,7 @@ class TangLottery(_PluginBase):
     def __new_result(status: str = "running", message: str = "", target_count: int = 0,
                      planned_batches: int = 0) -> Dict[str, Any]:
         return {
+            "task_id": datetime.now().strftime("%Y%m%d%H%M%S%f"),
             "date": "",
             "status": status,
             "status_text": TangLottery.__status_text(status),

@@ -3,12 +3,13 @@
     "name": "不可躺自动抽奖助手",
     "description": "按每日目标次数自动拆解并执行不可躺抽奖。",
     "labels": "站点,自动化",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "icon": "Moviepilot_A.png",
     "author": "jiangbkvir,bfjy",
     "level": 1,
     "v2": true,
     "history": {
+      "v1.0.1": "添加 TG Bot 命令支持。",
       "v1.0.0": "新增不可躺智能拆解自动抽奖、收益统计和奖品名称汇总。"
     }
   },
@@ -16,12 +17,13 @@
     "name": "PlayLet自动抽奖助手",
     "description": "按每日目标次数自动拆解并执行 PlayLet 抽奖。",
     "labels": "站点,自动化",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "icon": "Moviepilot_A.png",
     "author": "jiangbkvir,bfjy",
     "level": 1,
     "v2": true,
     "history": {
+      "v1.0.2": "添加 TG Bot 命令支持。",
       "v1.0.1": "优化详情页抽奖信息实时读取、抽奖接口日志和失败重试策略。",
       "v1.0.0": "新增 PlayLet 智能拆解自动抽奖、收益统计和奖品名称汇总。"
     }
