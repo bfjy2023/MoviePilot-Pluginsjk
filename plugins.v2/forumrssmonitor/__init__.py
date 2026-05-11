@@ -24,7 +24,7 @@ class ForumRssMonitor(_PluginBase):
     plugin_name = "论坛动态监控"
     plugin_desc = "监控论坛 RSS/Atom 动态，默认推送最近 24 小时内的新帖。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.0.1"
+    plugin_version = "1.0.2"
     plugin_author = "jiangbkvir,bfjy"
     author_url = "https://github.com/jiangbkvir/MoviePilot-Plugins"
     plugin_config_prefix = "forumrssmonitor_"
@@ -34,9 +34,6 @@ class ForumRssMonitor(_PluginBase):
     DEFAULT_RSS_URLS = "https://invites.fun/atom/t/xxzx"
     DEFAULT_KEYWORDS = ""
     DEFAULT_RECENT_HOURS = 24
-    SOURCE_NAME_MAP = {
-        "invites.fun": "蜂巢"
-    }
     MAX_HISTORY = 50
     REQUEST_TIMEOUT = 30
 
@@ -46,6 +43,7 @@ class ForumRssMonitor(_PluginBase):
     _interval = 10
     _recent_hours = DEFAULT_RECENT_HOURS
     _rss_urls = DEFAULT_RSS_URLS
+    _cookie = ""
     _keywords = DEFAULT_KEYWORDS
     _lock = threading.Lock()
 
@@ -57,10 +55,12 @@ class ForumRssMonitor(_PluginBase):
         self._interval = self.__safe_int(config.get("interval"), 10, min_value=1)
         self._recent_hours = self.__safe_int(config.get("recent_hours"), self.DEFAULT_RECENT_HOURS, min_value=1)
         self._rss_urls = (config.get("rss_urls") or self.DEFAULT_RSS_URLS).strip()
+        self._cookie = str(config.get("cookie") or "").strip()
         self._keywords = str(config.get("keywords", self.DEFAULT_KEYWORDS) or "").strip()
         logger.info(
             f"论坛动态监控初始化完成：enabled={self._enabled}, interval={self._interval}, "
-            f"notify={self._notify}, recent_hours={self._recent_hours}, feed_count={len(self.__rss_url_list())}"
+            f"notify={self._notify}, recent_hours={self._recent_hours}, "
+            f"cookie={'已配置' if self._cookie else '未配置'}, feed_count={len(self.__rss_url_list())}"
         )
         if self._run_once:
             self._run_once = False
@@ -71,6 +71,7 @@ class ForumRssMonitor(_PluginBase):
                 "interval": self._interval,
                 "recent_hours": self._recent_hours,
                 "rss_urls": self._rss_urls,
+                "cookie": self._cookie,
                 "keywords": self._keywords
             })
             logger.info("收到配置页立即运行请求，后台启动 RSS 检查任务")
@@ -146,6 +147,27 @@ class ForumRssMonitor(_PluginBase):
                                             "model": "run_once",
                                             "label": "立即运行一次",
                                             "hint": "保存配置后执行，并自动关闭"
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VTextarea",
+                                        "props": {
+                                            "model": "cookie",
+                                            "label": "请求 Cookie",
+                                            "rows": 3,
+                                            "placeholder": "可选：flarum_remember=...; flarum_session=...",
+                                            "hint": "RSS 需要登录时填写浏览器 Cookie；留空则不带 Cookie"
                                         }
                                     }
                                 ]
@@ -240,6 +262,7 @@ class ForumRssMonitor(_PluginBase):
             "interval": self._interval,
             "recent_hours": self._recent_hours,
             "rss_urls": self._rss_urls or self.DEFAULT_RSS_URLS,
+            "cookie": self._cookie,
             "keywords": self._keywords
         }
 
@@ -263,6 +286,7 @@ class ForumRssMonitor(_PluginBase):
                                     self.__info_col("最近检查", state.get("last_checked_at") or "-"),
                                     self.__info_col("最近推送", state.get("last_pushed_at") or "-"),
                                     self.__info_col("推送范围", f"最近 {self._recent_hours} 小时"),
+                                    self.__info_col("Cookie", "已配置" if self._cookie else "未配置"),
                                     self.__info_col("关键词", self.__keyword_text())
                                 ]
                             }
@@ -383,15 +407,18 @@ class ForumRssMonitor(_PluginBase):
             self._lock.release()
 
     def __fetch_entries(self, url: str) -> List[Dict[str, Any]]:
+        headers = self.__request_headers(url)
+        logger.info(
+            f"请求 RSS 源：url={url}，referer={headers.get('referer') or '-'}，"
+            f"cookie={'已配置' if self._cookie else '未配置'}"
+        )
         response = requests.get(
             url,
-            headers={
-                "accept": "application/atom+xml,application/rss+xml,application/xml,text/xml,*/*",
-                "user-agent": "Mozilla/5.0 (MoviePilot ForumRssMonitor)"
-            },
+            headers=headers,
             timeout=self.REQUEST_TIMEOUT,
             verify=False
         )
+        logger.info(f"RSS 源响应：url={url}，status_code={response.status_code}")
         if response.status_code != 200:
             raise RuntimeError(f"HTTP {response.status_code}")
         try:
@@ -403,6 +430,35 @@ class ForumRssMonitor(_PluginBase):
         if self.__strip_ns(root.tag).lower() == "rss":
             return self.__parse_rss(url, root)
         raise RuntimeError(f"不支持的 RSS 根节点：{root.tag}")
+
+    def __request_headers(self, url: str) -> Dict[str, str]:
+        parsed = urlparse(url)
+        origin = f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme and parsed.netloc else ""
+        referer = origin
+        if parsed.netloc.replace("www.", "") == "invites.fun":
+            referer = "https://invites.fun/t/xxzx"
+        headers = {
+            "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,"
+                      "image/avif,image/webp,image/apng,*/*;q=0.8,"
+                      "application/signed-exchange;v=b3;q=0.7",
+            "accept-language": "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
+            "cache-control": "max-age=0",
+            "priority": "u=0, i",
+            "referer": referer,
+            "sec-ch-ua": '"Chromium";v="148", "Microsoft Edge";v="148", "Not/A)Brand";v="99"',
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": '"macOS"',
+            "sec-fetch-dest": "empty",
+            "sec-fetch-mode": "navigate",
+            "sec-fetch-site": "same-origin",
+            "upgrade-insecure-requests": "1",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                          "AppleWebKit/537.36 (KHTML, like Gecko) "
+                          "Chrome/148.0.0.0 Safari/537.36 Edg/148.0.0.0"
+        }
+        if self._cookie:
+            headers["cookie"] = self._cookie
+        return headers
 
     def __parse_atom(self, url: str, root: ET.Element) -> List[Dict[str, Any]]:
         entries = []
@@ -578,8 +634,7 @@ class ForumRssMonitor(_PluginBase):
     @staticmethod
     def __source_name(url: str) -> str:
         host = urlparse(url).netloc or url
-        host = host.replace("www.", "")
-        return ForumRssMonitor.SOURCE_NAME_MAP.get(host, host)
+        return host.replace("www.", "")
 
     @staticmethod
     def __feed_key(url: str) -> str:
