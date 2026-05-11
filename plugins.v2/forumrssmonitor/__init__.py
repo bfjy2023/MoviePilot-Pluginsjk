@@ -24,7 +24,7 @@ class ForumRssMonitor(_PluginBase):
     plugin_name = "论坛动态监控"
     plugin_desc = "监控论坛 RSS/Atom 动态，默认推送最近 24 小时内的新帖。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.0.2"
+    plugin_version = "1.0.3"
     plugin_author = "jiangbkvir,bfjy"
     author_url = "https://github.com/jiangbkvir/MoviePilot-Plugins"
     plugin_config_prefix = "forumrssmonitor_"
@@ -34,6 +34,7 @@ class ForumRssMonitor(_PluginBase):
     DEFAULT_RSS_URLS = "https://invites.fun/atom/t/xxzx"
     DEFAULT_KEYWORDS = ""
     DEFAULT_RECENT_HOURS = 24
+    DISPLAY_TIMEZONE = timezone(timedelta(hours=8))
     MAX_HISTORY = 50
     REQUEST_TIMEOUT = 30
 
@@ -353,7 +354,7 @@ class ForumRssMonitor(_PluginBase):
         try:
             urls = self.__rss_url_list()
             keywords = self.__keyword_list()
-            cutoff_time = datetime.now(timezone.utc) - timedelta(hours=self._recent_hours)
+            cutoff_time = self.__now().astimezone(timezone.utc) - timedelta(hours=self._recent_hours)
             state = self.__get_state_data()
             seen = state.get("seen") or {}
             pushed_count = 0
@@ -397,7 +398,7 @@ class ForumRssMonitor(_PluginBase):
                 seen[feed_key] = merged_seen
 
             state["seen"] = seen
-            state["last_checked_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            state["last_checked_at"] = self.__format_datetime(self.__now())
             if pushed_count:
                 state["last_pushed_at"] = state["last_checked_at"]
             self.save_data("state", state)
@@ -515,7 +516,7 @@ class ForumRssMonitor(_PluginBase):
         title = f"【论坛动态监控】{entry.get('source')} - {entry.get('author')}"
         text = (
             f"标题：{entry.get('title')}\n"
-            f"时间：{entry.get('published') or '-'}\n"
+            f"时间：{self.__format_datetime(entry.get('published'))}\n"
             f"摘要：{entry.get('summary') or '-'}\n"
             f"原文：{entry.get('link') or '-'}"
         )
@@ -530,7 +531,7 @@ class ForumRssMonitor(_PluginBase):
     def __save_record(self, entry: Dict[str, Any]):
         records = self.__get_records()
         record = {
-            "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "date": self.__format_datetime(self.__now()),
             "source": entry.get("source") or "-",
             "author": entry.get("author") or "-",
             "title": entry.get("title") or "无标题",
@@ -544,7 +545,7 @@ class ForumRssMonitor(_PluginBase):
     def __record_error(self, state: Dict[str, Any], url: str, message: str):
         errors = state.get("errors") or []
         errors.append({
-            "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "date": self.__format_datetime(self.__now()),
             "url": url,
             "message": message
         })
@@ -592,6 +593,20 @@ class ForumRssMonitor(_PluginBase):
         if parsed.tzinfo is None:
             parsed = parsed.replace(tzinfo=timezone.utc)
         return parsed.astimezone(timezone.utc)
+
+    @classmethod
+    def __now(cls) -> datetime:
+        return datetime.now(cls.DISPLAY_TIMEZONE)
+
+    @classmethod
+    def __format_datetime(cls, value: Any) -> str:
+        if isinstance(value, datetime):
+            parsed = value
+        else:
+            parsed = cls.__parse_datetime(value)
+        if not parsed:
+            return "-"
+        return parsed.astimezone(cls.DISPLAY_TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
 
     @staticmethod
     def __match_keywords(entry: Dict[str, Any], keywords: List[str]) -> bool:

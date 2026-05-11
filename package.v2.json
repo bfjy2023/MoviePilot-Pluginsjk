@@ -16,11 +16,12 @@
     "name": "论坛动态监控",
     "description": "监控论坛 RSS/Atom 动态，默认推送最近 24 小时内的新帖。",
     "labels": "站点,通知",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "icon": "Moviepilot_A.png",
     "author": "jiangbkvir,bfjy",
     "level": 1,
     "history": {
+      "v1.0.3": "统一按东八区展示检查时间、推送时间和帖子发布时间。",
       "v1.0.2": "新增 RSS 请求 Cookie 配置，并优化 invites.fun 请求头。",
       "v1.0.1": "默认关键词留空，新增按发布时间推送最近 24 小时内帖子。",
       "v1.0.0": "新增论坛 RSS/Atom 动态监控、关键词过滤和通知推送。"
