@@ -34,6 +34,9 @@ class ForumRssMonitor(_PluginBase):
     DEFAULT_RSS_URLS = "https://invites.fun/atom/t/xxzx"
     DEFAULT_KEYWORDS = ""
     DEFAULT_RECENT_HOURS = 24
+    SOURCE_NAME_MAP = {
+        "invites.fun": "蜂巢"
+    }
     MAX_HISTORY = 50
     REQUEST_TIMEOUT = 30
 
@@ -575,7 +578,8 @@ class ForumRssMonitor(_PluginBase):
     @staticmethod
     def __source_name(url: str) -> str:
         host = urlparse(url).netloc or url
-        return host.replace("www.", "")
+        host = host.replace("www.", "")
+        return ForumRssMonitor.SOURCE_NAME_MAP.get(host, host)
 
     @staticmethod
     def __feed_key(url: str) -> str:
