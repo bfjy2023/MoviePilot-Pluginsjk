@@ -2,7 +2,8 @@ import hashlib
 import re
 import threading
 import xml.etree.ElementTree as ET
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 from html import unescape
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
@@ -21,9 +22,9 @@ urllib3.disable_warnings(InsecureRequestWarning)
 
 class ForumRssMonitor(_PluginBase):
     plugin_name = "论坛动态监控"
-    plugin_desc = "监控论坛 RSS/Atom 动态，并按关键词推送新帖。"
+    plugin_desc = "监控论坛 RSS/Atom 动态，默认推送最近 24 小时内的新帖。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.0.0"
+    plugin_version = "1.0.1"
     plugin_author = "jiangbkvir,bfjy"
     author_url = "https://github.com/jiangbkvir/MoviePilot-Plugins"
     plugin_config_prefix = "forumrssmonitor_"
@@ -31,7 +32,8 @@ class ForumRssMonitor(_PluginBase):
     auth_level = 1
 
     DEFAULT_RSS_URLS = "https://invites.fun/atom/t/xxzx"
-    DEFAULT_KEYWORDS = "BTM,不可躺,开注"
+    DEFAULT_KEYWORDS = ""
+    DEFAULT_RECENT_HOURS = 24
     MAX_HISTORY = 50
     REQUEST_TIMEOUT = 30
 
@@ -39,6 +41,7 @@ class ForumRssMonitor(_PluginBase):
     _notify = True
     _run_once = False
     _interval = 10
+    _recent_hours = DEFAULT_RECENT_HOURS
     _rss_urls = DEFAULT_RSS_URLS
     _keywords = DEFAULT_KEYWORDS
     _lock = threading.Lock()
@@ -49,11 +52,12 @@ class ForumRssMonitor(_PluginBase):
         self._notify = bool(config.get("notify", True))
         self._run_once = bool(config.get("run_once", False))
         self._interval = self.__safe_int(config.get("interval"), 10, min_value=1)
+        self._recent_hours = self.__safe_int(config.get("recent_hours"), self.DEFAULT_RECENT_HOURS, min_value=1)
         self._rss_urls = (config.get("rss_urls") or self.DEFAULT_RSS_URLS).strip()
-        self._keywords = (config.get("keywords") or self.DEFAULT_KEYWORDS).strip()
+        self._keywords = str(config.get("keywords", self.DEFAULT_KEYWORDS) or "").strip()
         logger.info(
             f"论坛动态监控初始化完成：enabled={self._enabled}, interval={self._interval}, "
-            f"notify={self._notify}, feed_count={len(self.__rss_url_list())}"
+            f"notify={self._notify}, recent_hours={self._recent_hours}, feed_count={len(self.__rss_url_list())}"
         )
         if self._run_once:
             self._run_once = False
@@ -62,6 +66,7 @@ class ForumRssMonitor(_PluginBase):
                 "notify": self._notify,
                 "run_once": False,
                 "interval": self._interval,
+                "recent_hours": self._recent_hours,
                 "rss_urls": self._rss_urls,
                 "keywords": self._keywords
             })
@@ -162,6 +167,22 @@ class ForumRssMonitor(_PluginBase):
                                         }
                                     }
                                 ]
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 4},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "recent_hours",
+                                            "label": "推送最近小时数",
+                                            "type": "number",
+                                            "min": 1,
+                                            "hint": "默认只推送最近 24 小时内的帖子"
+                                        }
+                                    }
+                                ]
                             }
                         ]
                     },
@@ -199,8 +220,8 @@ class ForumRssMonitor(_PluginBase):
                                             "model": "keywords",
                                             "label": "关键词",
                                             "rows": 3,
-                                            "placeholder": "BTM,不可躺,开注",
-                                            "hint": "逗号或换行分隔；留空则推送全部新条目"
+                                            "placeholder": "可选：BTM,不可躺,开注",
+                                            "hint": "逗号或换行分隔；留空则只按时间推送"
                                         }
                                     }
                                 ]
@@ -214,6 +235,7 @@ class ForumRssMonitor(_PluginBase):
             "notify": self._notify,
             "run_once": False,
             "interval": self._interval,
+            "recent_hours": self._recent_hours,
             "rss_urls": self._rss_urls or self.DEFAULT_RSS_URLS,
             "keywords": self._keywords
         }
@@ -237,6 +259,7 @@ class ForumRssMonitor(_PluginBase):
                                     self.__info_col("RSS 源数量", len(self.__rss_url_list())),
                                     self.__info_col("最近检查", state.get("last_checked_at") or "-"),
                                     self.__info_col("最近推送", state.get("last_pushed_at") or "-"),
+                                    self.__info_col("推送范围", f"最近 {self._recent_hours} 小时"),
                                     self.__info_col("关键词", self.__keyword_text())
                                 ]
                             }
@@ -303,11 +326,15 @@ class ForumRssMonitor(_PluginBase):
         try:
             urls = self.__rss_url_list()
             keywords = self.__keyword_list()
+            cutoff_time = datetime.now(timezone.utc) - timedelta(hours=self._recent_hours)
             state = self.__get_state_data()
             seen = state.get("seen") or {}
             pushed_count = 0
             checked_count = 0
-            logger.info(f"RSS 检查任务开始：feed_count={len(urls)}，keywords={keywords or '全部推送'}")
+            logger.info(
+                f"RSS 检查任务开始：feed_count={len(urls)}，recent_hours={self._recent_hours}，"
+                f"cutoff={cutoff_time.isoformat()}，keywords={keywords or '未配置，仅按时间推送'}"
+            )
             for url in urls:
                 checked_count += 1
                 feed_key = self.__feed_key(url)
@@ -329,7 +356,11 @@ class ForumRssMonitor(_PluginBase):
                     f"new_entries={len(new_entries)}，first_run={not bool(previous_seen)}"
                 )
                 for entry in reversed(new_entries):
+                    if not self.__is_recent_entry(entry, cutoff_time):
+                        logger.info(f"跳过超出时间范围的 RSS 条目：entry={self.__to_log_text(entry)}")
+                        continue
                     if not self.__match_keywords(entry, keywords):
+                        logger.info(f"跳过未命中关键词的 RSS 条目：entry={self.__to_log_text(entry)}")
                         continue
                     pushed_count += 1
                     self.__send_notification(entry)
@@ -478,7 +509,30 @@ class ForumRssMonitor(_PluginBase):
 
     def __keyword_text(self) -> str:
         keywords = self.__keyword_list()
-        return "、".join(keywords) if keywords else "全部"
+        return "、".join(keywords) if keywords else "未配置"
+
+    def __is_recent_entry(self, entry: Dict[str, Any], cutoff_time: datetime) -> bool:
+        published_at = self.__parse_datetime(entry.get("published"))
+        if not published_at:
+            logger.warn(f"RSS 条目缺少可解析发布时间，按新帖处理：entry={self.__to_log_text(entry)}")
+            return True
+        return published_at >= cutoff_time
+
+    @staticmethod
+    def __parse_datetime(value: Any) -> Optional[datetime]:
+        text = str(value or "").strip()
+        if not text or text == "-":
+            return None
+        try:
+            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            try:
+                parsed = parsedate_to_datetime(text)
+            except (TypeError, ValueError, IndexError, OverflowError):
+                return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
 
     @staticmethod
     def __match_keywords(entry: Dict[str, Any], keywords: List[str]) -> bool:
