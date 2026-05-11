@@ -12,6 +12,18 @@
       "v1.0.0": "新增不可躺智能拆解自动抽奖、收益统计和奖品名称汇总。"
     }
   },
+  "ForumRssMonitor": {
+    "name": "论坛动态监控",
+    "description": "监控论坛 RSS/Atom 动态，并按关键词推送新帖。",
+    "labels": "站点,通知",
+    "version": "1.0.0",
+    "icon": "Moviepilot_A.png",
+    "author": "jiangbkvir,bfjy",
+    "level": 1,
+    "history": {
+      "v1.0.0": "新增论坛 RSS/Atom 动态监控、关键词过滤和通知推送。"
+    }
+  },
   "PlayletLottery": {
     "name": "PlayLet自动抽奖助手",
     "description": "按每日目标次数自动拆解并执行 PlayLet 抽奖。",
