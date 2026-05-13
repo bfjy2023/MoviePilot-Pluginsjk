@@ -1,4 +1,16 @@
 {
+  "UnCrossSeedChecker": {
+    "name": "未辅种检查器",
+    "description": "检查下载器中指定站点的种子是否已辅种到其他站点。",
+    "labels": "站点,辅种",
+    "version": "1.0.0",
+    "icon": "Moviepilot_A.png",
+    "author": "jiangbkvir,bfjy",
+    "level": 1,
+    "history": {
+      "v1.0.0": "新增下载器种子扫描、站点识别、辅种检测和未辅种种子列表展示。"
+    }
+  },
   "TangLottery": {
     "name": "不可躺自动抽奖助手",
     "description": "按每日目标次数自动拆解并执行不可躺抽奖。",
