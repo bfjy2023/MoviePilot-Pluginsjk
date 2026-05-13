@@ -14,13 +14,15 @@
   },
   "ForumRssMonitor": {
     "name": "论坛动态监控",
-    "description": "监控论坛 RSS/Atom 动态，默认推送最近 24 小时内的新帖。",
+    "description": "监控论坛 RSS/Atom 动态和蜂巢(pting.club) API，默认推送最近 24 小时内的新帖。",
     "labels": "站点,通知",
-    "version": "1.0.3",
+    "version": "1.2.0",
     "icon": "Moviepilot_A.png",
     "author": "jiangbkvir,bfjy",
     "level": 1,
     "history": {
+      "v1.2.0": "新增清除推送缓冲功能，修复清除缓冲时与检查任务的竞态条件。",
+      "v1.1.0": "新增蜂巢(pting.club) API 监控支持，通过 Flarum API 获取讨论列表，添加测试连接功能。",
       "v1.0.3": "统一按东八区展示检查时间、推送时间和帖子发布时间。",
       "v1.0.2": "新增 RSS 请求 Cookie 配置，并优化 invites.fun 请求头。",
       "v1.0.1": "默认关键词留空，新增按发布时间推送最近 24 小时内帖子。",

@@ -22,9 +22,9 @@ urllib3.disable_warnings(InsecureRequestWarning)
 
 class ForumRssMonitor(_PluginBase):
     plugin_name = "论坛动态监控"
-    plugin_desc = "监控论坛 RSS/Atom 动态，默认推送最近 24 小时内的新帖。"
+    plugin_desc = "监控论坛 RSS/Atom 动态和蜂巢(pting.club) API，默认推送最近 24 小时内的新帖。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.0.3"
+    plugin_version = "1.2.0"
     plugin_author = "jiangbkvir,bfjy"
     author_url = "https://github.com/jiangbkvir/MoviePilot-Plugins"
     plugin_config_prefix = "forumrssmonitor_"
@@ -37,6 +37,7 @@ class ForumRssMonitor(_PluginBase):
     DISPLAY_TIMEZONE = timezone(timedelta(hours=8))
     MAX_HISTORY = 50
     REQUEST_TIMEOUT = 30
+    DEFAULT_PTING_BASE_URL = "https://pting.club"
 
     _enabled = False
     _notify = True
@@ -46,6 +47,11 @@ class ForumRssMonitor(_PluginBase):
     _rss_urls = DEFAULT_RSS_URLS
     _cookie = ""
     _keywords = DEFAULT_KEYWORDS
+    _pting_enabled = False
+    _pting_cookie = ""
+    _pting_csrf_token = ""
+    _pting_base_url = DEFAULT_PTING_BASE_URL
+    _clear_cache = False
     _lock = threading.Lock()
 
     def init_plugin(self, config: dict = None):
@@ -58,22 +64,53 @@ class ForumRssMonitor(_PluginBase):
         self._rss_urls = (config.get("rss_urls") or self.DEFAULT_RSS_URLS).strip()
         self._cookie = str(config.get("cookie") or "").strip()
         self._keywords = str(config.get("keywords", self.DEFAULT_KEYWORDS) or "").strip()
+        self._pting_enabled = bool(config.get("pting_enabled", False))
+        self._pting_cookie = str(config.get("pting_cookie") or "").strip()
+        self._pting_csrf_token = str(config.get("pting_csrf_token") or "").strip()
+        self._pting_base_url = str(config.get("pting_base_url") or self.DEFAULT_PTING_BASE_URL).strip()
+        self._clear_cache = bool(config.get("clear_cache", False))
         logger.info(
             f"论坛动态监控初始化完成：enabled={self._enabled}, interval={self._interval}, "
             f"notify={self._notify}, recent_hours={self._recent_hours}, "
-            f"cookie={'已配置' if self._cookie else '未配置'}, feed_count={len(self.__rss_url_list())}"
+            f"cookie={'已配置' if self._cookie else '未配置'}, feed_count={len(self.__rss_url_list())}, "
+            f"pting_enabled={self._pting_enabled}, pting_cookie={'已配置' if self._pting_cookie else '未配置'}, "
+            f"pting_csrf_token={'已配置' if self._pting_csrf_token else '未配置'}"
         )
+        if self._clear_cache:
+            self._clear_cache = False
+            self.update_config({
+                "enabled": self._enabled,
+                "notify": self._notify,
+                "run_once": False,
+                "clear_cache": False,
+                "interval": self._interval,
+                "recent_hours": self._recent_hours,
+                "rss_urls": self._rss_urls,
+                "cookie": self._cookie,
+                "keywords": self._keywords,
+                "pting_enabled": self._pting_enabled,
+                "pting_cookie": self._pting_cookie,
+                "pting_csrf_token": self._pting_csrf_token,
+                "pting_base_url": self._pting_base_url
+            })
+            logger.info("收到配置页清除缓冲请求，先清除再执行")
+            self.clear_cache()
         if self._run_once:
             self._run_once = False
             self.update_config({
                 "enabled": self._enabled,
                 "notify": self._notify,
                 "run_once": False,
+                "clear_cache": False,
                 "interval": self._interval,
                 "recent_hours": self._recent_hours,
                 "rss_urls": self._rss_urls,
                 "cookie": self._cookie,
-                "keywords": self._keywords
+                "keywords": self._keywords,
+                "pting_enabled": self._pting_enabled,
+                "pting_cookie": self._pting_cookie,
+                "pting_csrf_token": self._pting_csrf_token,
+                "pting_base_url": self._pting_base_url
             })
             logger.info("收到配置页立即运行请求，后台启动 RSS 检查任务")
             threading.Thread(target=self.check_feeds, daemon=True).start()
@@ -94,6 +131,14 @@ class ForumRssMonitor(_PluginBase):
                 "auth": "bear",
                 "summary": "立即检查论坛 RSS",
                 "description": "按当前插件配置立即检查一次论坛 RSS。"
+            },
+            {
+                "path": "/ForumRssMonitor/clear_cache",
+                "endpoint": self.clear_cache_api,
+                "methods": ["POST"],
+                "auth": "bear",
+                "summary": "清除已推送缓冲",
+                "description": "清除所有已推送的记录，下次检查时会重新推送。"
             }
         ]
 
@@ -148,6 +193,20 @@ class ForumRssMonitor(_PluginBase):
                                             "model": "run_once",
                                             "label": "立即运行一次",
                                             "hint": "保存配置后执行，并自动关闭"
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 4},
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "clear_cache",
+                                            "label": "清除推送缓冲",
+                                            "hint": "清除已推送记录，保存后执行并自动关闭"
                                         }
                                     }
                                 ]
@@ -253,6 +312,84 @@ class ForumRssMonitor(_PluginBase):
                                 ]
                             }
                         ]
+                    },
+                    {
+                        "component": "VDivider",
+                        "props": {"class": "my-4"}
+                    },
+                    {
+                        "component": "div",
+                        "props": {"class": "text-h6 mb-2"},
+                        "text": "蜂巢 (pting.club) 配置"
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "pting_enabled",
+                                            "label": "启用蜂巢监控",
+                                            "hint": "启用后将通过 API 监控 pting.club 新帖"
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VTextarea",
+                                        "props": {
+                                            "model": "pting_cookie",
+                                            "label": "蜂巢 Cookie",
+                                            "rows": 4,
+                                            "placeholder": "flarum_remember=...; flarum_session=...; acw_tc=...; cdn_sec_tc=...",
+                                            "hint": "从浏览器复制完整的 Cookie 字符串"
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "pting_csrf_token",
+                                            "label": "CSRF Token",
+                                            "placeholder": "从请求头 X-CSRF-Token 中获取",
+                                            "hint": "浏览器开发者工具 -> Network -> 找到 API 请求 -> Headers -> X-CSRF-Token"
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "component": "VAlert",
+                        "props": {
+                            "type": "info",
+                            "variant": "tonal",
+                            "class": "mt-2"
+                        },
+                        "text": "获取方式：登录 pting.club -> 打开浏览器开发者工具(F12) -> Network 选项卡 -> 刷新页面 -> 点击任意 api 请求 -> 复制 Request Headers 中的 Cookie 和 X-CSRF-Token 值。保存配置后点击「立即运行一次」测试连接。"
                     }
                 ]
             }
@@ -260,11 +397,16 @@ class ForumRssMonitor(_PluginBase):
             "enabled": self._enabled,
             "notify": self._notify,
             "run_once": False,
+            "clear_cache": False,
             "interval": self._interval,
             "recent_hours": self._recent_hours,
             "rss_urls": self._rss_urls or self.DEFAULT_RSS_URLS,
             "cookie": self._cookie,
-            "keywords": self._keywords
+            "keywords": self._keywords,
+            "pting_enabled": self._pting_enabled,
+            "pting_cookie": self._pting_cookie,
+            "pting_csrf_token": self._pting_csrf_token,
+            "pting_base_url": self._pting_base_url or self.DEFAULT_PTING_BASE_URL
         }
 
     def get_page(self) -> List[dict]:
@@ -289,6 +431,27 @@ class ForumRssMonitor(_PluginBase):
                                     self.__info_col("推送范围", f"最近 {self._recent_hours} 小时"),
                                     self.__info_col("Cookie", "已配置" if self._cookie else "未配置"),
                                     self.__info_col("关键词", self.__keyword_text())
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            },
+            {
+                "component": "VCard",
+                "props": {"variant": "tonal", "class": "mb-4"},
+                "content": [
+                    {"component": "VCardTitle", "text": "蜂巢 (pting.club) 监控状态"},
+                    {
+                        "component": "VCardText",
+                        "content": [
+                            {
+                                "component": "VRow",
+                                "content": [
+                                    self.__info_col("启用状态", "已启用" if self._pting_enabled else "未启用"),
+                                    self.__info_col("Cookie", "已配置" if self._pting_cookie else "未配置"),
+                                    self.__info_col("CSRF Token", "已配置" if self._pting_csrf_token else "未配置"),
+                                    self.__info_col("站点地址", self._pting_base_url or "-")
                                 ]
                             }
                         ]
@@ -325,7 +488,7 @@ class ForumRssMonitor(_PluginBase):
                 "props": {
                     "headers": [
                         {"title": "时间", "key": "date"},
-                        {"title": "RSS", "key": "url"},
+                        {"title": "来源", "key": "url"},
                         {"title": "错误", "key": "message"}
                     ],
                     "items": errors[-10:][::-1],
@@ -347,6 +510,25 @@ class ForumRssMonitor(_PluginBase):
         threading.Thread(target=self.check_feeds, daemon=True).start()
         return {"success": True, "message": "任务已开始，完成后会按配置发送通知"}
 
+    def clear_cache_api(self) -> Dict[str, Any]:
+        logger.info("收到 API 清除缓冲请求")
+        return self.clear_cache()
+
+    def clear_cache(self) -> Dict[str, Any]:
+        if not self._lock.acquire(blocking=True, timeout=30):
+            return {"success": False, "message": "等待检查任务超时，请稍后再试"}
+        try:
+            state = self.__get_state_data()
+            state["seen"] = {}
+            self.save_data("state", state)
+            logger.info("已清除所有推送缓冲")
+            return {"success": True, "message": "已清除所有推送缓冲，下次检查时将重新推送"}
+        except Exception as err:
+            logger.error(f"清除缓冲失败：{err}")
+            return {"success": False, "message": f"清除失败：{str(err)}"}
+        finally:
+            self._lock.release()
+
     def check_feeds(self) -> Dict[str, Any]:
         if not self._lock.acquire(blocking=False):
             logger.warn("RSS 检查任务启动失败：已有任务正在执行")
@@ -361,7 +543,8 @@ class ForumRssMonitor(_PluginBase):
             checked_count = 0
             logger.info(
                 f"RSS 检查任务开始：feed_count={len(urls)}，recent_hours={self._recent_hours}，"
-                f"cutoff={cutoff_time.isoformat()}，keywords={keywords or '未配置，仅按时间推送'}"
+                f"cutoff={cutoff_time.isoformat()}，keywords={keywords or '未配置，仅按时间推送'}，"
+                f"pting_enabled={self._pting_enabled}"
             )
             for url in urls:
                 checked_count += 1
@@ -396,6 +579,40 @@ class ForumRssMonitor(_PluginBase):
 
                 merged_seen = list(dict.fromkeys(current_ids + list(previous_seen)))[:300]
                 seen[feed_key] = merged_seen
+
+            if self._pting_enabled:
+                pting_key = "pting_discussions"
+                previous_pting_seen = set(seen.get(pting_key) or [])
+                try:
+                    pting_entries = self.__fetch_pting_discussions()
+                    checked_count += 1
+                except Exception as err:
+                    self.__record_error(state, "pting.club", str(err))
+                    logger.error(f"蜂巢 API 检查失败：错误={err}")
+                    pting_entries = []
+
+                current_pting_ids = [entry["id"] for entry in pting_entries if entry.get("id")]
+                new_pting_entries = [
+                    entry for entry in pting_entries
+                    if entry.get("id") and entry.get("id") not in previous_pting_seen
+                ]
+                logger.info(
+                    f"蜂巢 API 解析完成：entries={len(pting_entries)}，"
+                    f"new_entries={len(new_pting_entries)}，first_run={not bool(previous_pting_seen)}"
+                )
+                for entry in reversed(new_pting_entries):
+                    if not self.__is_recent_entry(entry, cutoff_time):
+                        logger.info(f"跳过超出时间范围的蜂巢条目：entry={self.__to_log_text(entry)}")
+                        continue
+                    if not self.__match_keywords(entry, keywords):
+                        logger.info(f"跳过未命中关键词的蜂巢条目：entry={self.__to_log_text(entry)}")
+                        continue
+                    pushed_count += 1
+                    self.__send_notification(entry)
+                    self.__save_record(entry)
+
+                merged_pting_seen = list(dict.fromkeys(current_pting_ids + list(previous_pting_seen)))[:300]
+                seen[pting_key] = merged_pting_seen
 
             state["seen"] = seen
             state["last_checked_at"] = self.__format_datetime(self.__now())
@@ -460,6 +677,126 @@ class ForumRssMonitor(_PluginBase):
         if self._cookie:
             headers["cookie"] = self._cookie
         return headers
+
+    def __pting_request_headers(self) -> Dict[str, str]:
+        headers = {
+            "Accept": "*/*",
+            "Accept-Language": "zh-CN,zh;q=0.9",
+            "Connection": "keep-alive",
+            "Referer": f"{self._pting_base_url}/?sort=newest",
+            "Sec-Fetch-Dest": "empty",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Site": "same-origin",
+            "User-Agent": "Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) "
+                          "AppleWebKit/537.36 (KHTML, like Gecko) "
+                          "Chrome/147.0.0.0 Mobile Safari/537.36",
+            "X-CSRF-Token": self._pting_csrf_token,
+            "sec-ch-ua": '"Google Chrome";v="147", "Not.A/Brand";v="8", "Chromium";v="147"',
+            "sec-ch-ua-mobile": "?1",
+            "sec-ch-ua-platform": '"Android"'
+        }
+        if self._pting_cookie:
+            headers["Cookie"] = self._pting_cookie
+        return headers
+
+    def __fetch_pting_discussions(self) -> List[Dict[str, Any]]:
+        if not self._pting_enabled:
+            return []
+        if not self._pting_cookie or not self._pting_csrf_token:
+            raise RuntimeError("蜂巢(pting.club) Cookie 或 CSRF Token 未配置")
+        url = f"{self._pting_base_url}/api/discussions"
+        params = {
+            "include": "user,lastPostedUser,tags,tags.parent,firstPost,recipientUsers,recipientGroups,lastPost",
+            "sort": "-createdAt",
+            "page[offset]": 0
+        }
+        headers = self.__pting_request_headers()
+        logger.info(
+            f"请求蜂巢 API：url={url}，cookie={'已配置' if self._pting_cookie else '未配置'}，"
+            f"csrf_token={'已配置' if self._pting_csrf_token else '未配置'}"
+        )
+        response = requests.get(
+            url,
+            params=params,
+            headers=headers,
+            timeout=self.REQUEST_TIMEOUT,
+            verify=False
+        )
+        logger.info(f"蜂巢 API 响应：url={url}，status_code={response.status_code}")
+        if response.status_code != 200:
+            raise RuntimeError(f"HTTP {response.status_code}")
+        try:
+            data = response.json()
+        except ValueError as err:
+            raise RuntimeError(f"蜂巢 API 响应解析失败：{err}") from err
+        return self.__parse_pting_response(data)
+
+    def __parse_pting_response(self, data: Dict[str, Any]) -> List[Dict[str, Any]]:
+        entries = []
+        discussions = data.get("data") or []
+        included = data.get("included") or []
+        user_map = {}
+        for item in included:
+            if item.get("type") == "users":
+                user_id = item.get("id")
+                username = (item.get("attributes") or {}).get("username", "")
+                if user_id and username:
+                    user_map[user_id] = username
+        for discussion in discussions:
+            if discussion.get("type") != "discussions":
+                continue
+            attrs = discussion.get("attributes") or {}
+            disc_id = discussion.get("id") or ""
+            title = attrs.get("title") or "无标题"
+            slug = attrs.get("slug") or ""
+            created_at = attrs.get("createdAt") or ""
+            last_posted_at = attrs.get("lastPostedAt") or ""
+            comment_count = attrs.get("commentCount") or 0
+            discussion_id = attrs.get("discussionId") or disc_id
+            link = f"{self._pting_base_url}/d/{discussion_id}"
+            if slug:
+                link = f"{self._pting_base_url}/d/{discussion_id}-{slug}"
+            relationships = discussion.get("relationships") or {}
+            user_data = (relationships.get("user") or {}).get("data") or {}
+            author_id = user_data.get("id") or ""
+            author = user_map.get(author_id, "未知用户")
+            tags = []
+            tags_data = (relationships.get("tags") or {}).get("data") or []
+            for tag_ref in tags_data:
+                tag_id = tag_ref.get("id")
+                for inc in included:
+                    if inc.get("type") == "tags" and inc.get("id") == tag_id:
+                        tag_name = (inc.get("attributes") or {}).get("name") or ""
+                        if tag_name:
+                            tags.append(tag_name)
+                        break
+            summary_parts = []
+            if tags:
+                summary_parts.append(f"标签：{'、'.join(tags)}")
+            if comment_count:
+                summary_parts.append(f"回复数：{comment_count}")
+            first_post_data = (relationships.get("firstPost") or {}).get("data") or {}
+            first_post_id = first_post_data.get("id")
+            for inc in included:
+                if inc.get("type") == "posts" and inc.get("id") == first_post_id:
+                    post_content = (inc.get("attributes") or {}).get("contentHtml") or ""
+                    if post_content:
+                        clean_content = self.__clean_text(post_content)
+                        if clean_content:
+                            summary_parts.append(clean_content[:200])
+                    break
+            summary = " | ".join(summary_parts) if summary_parts else "-"
+            entries.append({
+                "id": f"pting_{disc_id}",
+                "source": "pting.club",
+                "feed_url": "api",
+                "title": title,
+                "link": link,
+                "author": author,
+                "published": last_posted_at or created_at,
+                "summary": summary
+            })
+        return entries
 
     def __parse_atom(self, url: str, root: ET.Element) -> List[Dict[str, Any]]:
         entries = []
