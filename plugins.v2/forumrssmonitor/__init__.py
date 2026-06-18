@@ -389,7 +389,7 @@ class ForumRssMonitor(_PluginBase):
                             "variant": "tonal",
                             "class": "mt-2"
                         },
-                        "text": "获取方式：登录 pting.club -> 打开浏览器开发者工具(F12) -> Network 选项卡 -> 刷新页面 -> 点击任意 api 请求 -> 复制 Request Headers 中的 Cookie 和 X-CSRF-Token 值。保存配置后点击「立即运行一次」测试连接。"
+                        "text": "获取方式：登录 pting.club -> 打开浏览器开发者工具(F12) -> Network 选项卡 -> 刷新页面 -> 点击任意 api 请求 -> 复制 Request Headers 中的 Cookie 和 X-CSRF-Token 值。保存配置后点击「立即运行一次」验证连接。"
                     }
                 ]
             }

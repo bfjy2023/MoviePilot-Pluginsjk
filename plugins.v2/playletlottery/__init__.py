@@ -27,7 +27,7 @@ class PlayletLottery(_PluginBase):
     plugin_name = "PlayLet自动抽奖助手"
     plugin_desc = "按每日目标次数自动拆解并执行 PlayLet 抽奖。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.0.2"
+    plugin_version = "1.0.3"
     plugin_author = "jiangbkvir,bfjy"
     author_url = "https://github.com/jiangbkvir/MoviePilot-Plugins"
     plugin_config_prefix = "playletlottery_"
@@ -905,7 +905,7 @@ class PlayletLottery(_PluginBase):
         return any(word in lowered for word in ["cookie", "非法访问", "未登录", "登录", "权限", "auth"])
 
     @staticmethod
-    def __sleep_between_requests(min_seconds: int = 10, max_seconds: int = 20):
+    def __sleep_between_requests(min_seconds: int = 4, max_seconds: int = 5):
         delay = random.randint(min_seconds, max_seconds)
         logger.info(f"抽奖请求间隔等待：{delay} 秒")
         time.sleep(delay)
