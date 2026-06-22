@@ -905,7 +905,7 @@ class PlayletLottery(_PluginBase):
         return any(word in lowered for word in ["cookie", "非法访问", "未登录", "登录", "权限", "auth"])
 
     @staticmethod
-    def __sleep_between_requests(min_seconds: int = 4, max_seconds: int = 5):
+    def __sleep_between_requests(min_seconds: int = 40, max_seconds: int = 59):
         delay = random.randint(min_seconds, max_seconds)
         logger.info(f"抽奖请求间隔等待：{delay} 秒")
         time.sleep(delay)
